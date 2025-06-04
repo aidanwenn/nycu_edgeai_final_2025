@@ -8,6 +8,7 @@ import numpy as np
 from vllm import LLM, SamplingParams
 from vllm.config import CompilationConfig
 from vllm.v1.metrics.reader import Counter, Vector
+from vllm.lora.request import LoRARequest
 
 # import os
 # os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
@@ -90,12 +91,20 @@ def main():
     
     max_new_tokens = 256    # Number of new tokens to generate
     device = 'cuda:0'
+    device_ppl = 'cuda:1'
     
     ### === TODO: Load your model (you may change this part) ===
     # model_name = "meta-llama/Llama-3.2-3B-Instruct"   
-    model_name = "shuyuej/Llama-3.2-3B-Instruct-GPTQ"
+    # model_name = "shuyuej/Llama-3.2-3B-Instruct-GPTQ"
+    lora_path = "./outputs/ft-2025-06-04_05-54-19"
+    # model_name = "./Llama-3.2-3B-Instruct-gptq-96"
+    model_name = "EdgeAIFinal/gptq_gs128_4bit"
+    # model_name = "EdgeAIFinal/Llama-3.2-1B-Instruct-gptqmodel-4bit"
     spec_model_name = "shuyuej/Llama-3.2-1B-Instruct-GPTQ"
 
+    base_model = AutoModelForCausalLM.from_pretrained(model_name, device_map=device_ppl)
+    base_model.eval()
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
     # base_model = AutoModelForCausalLM.from_pretrained(
     #     model_name,
     #     torch_dtype=torch.float16,
@@ -110,18 +119,18 @@ def main():
     model = LLM(
         model_name,
         dtype=torch.float16,
-        max_model_len=2048,
+        max_model_len=512,
         quantization="gptq", #bitsandbytes
         tensor_parallel_size=1,
-        #enforce_eager=True,
+        enforce_eager=True,
         speculative_config={
             "model": spec_model_name,
             "quantization": "gptq",
             "num_speculative_tokens": num_spec_tokens,
             "draft_tensor_parallel_size": 1,
-            "max_model_len": 2048
+            "max_model_len": 512
         },
-        compilation_config=compilation_config
+        compilation_config=compilation_config,
     )
     #####################################
     
@@ -130,7 +139,8 @@ def main():
     
 
     warmup_prompt = "Explain what AI is."
-     
+
+    # lora_path = "outputs/ft-2025-06-03_19-52-35"
     sampling_params = SamplingParams(
         max_tokens=max_new_tokens,
         temperature=0,
@@ -170,8 +180,8 @@ def main():
 
     # ### Your final throughput result ###
     print(f'Throughput: {org_tput} toks/s')
-    # ppl = evaluate_ppl(model, tokenizer, device)
-    # print(f"Perplexity (PPL): {ppl}")
+    ppl = evaluate_ppl(base_model, tokenizer, device_ppl)
+    print(f"Perplexity (PPL): {ppl}")
 
     acceptance_counts = [0] * (num_spec_tokens + 1)
     for out in generated:
@@ -182,17 +192,16 @@ def main():
         {sum(acceptance_counts) / acceptance_counts[0]:.2f}")
 
     torch.distributed.destroy_process_group()
-    # # Save results to CSV
-    # import csv
-    # rounded_tput = round(org_tput, 1)
-    # # ppl = round(ppl, 2)
-    # ppl = 0
+    # # # Save results to CSV
+    import csv
+    rounded_tput = round(org_tput, 1)
+    ppl = round(ppl, 2)
 
-    # with open("result.csv", mode="w", newline="") as file:
-    #     writer = csv.writer(file)
-    #     writer.writerow(["Id", "value"])
-    #     writer.writerow([0, ppl])
-    #     writer.writerow([1, rounded_tput])
+    with open("result.csv", mode="w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(["Id", "value"])
+        writer.writerow([0, ppl])
+        writer.writerow([1, rounded_tput])
         
 if __name__ == '__main__':
     main()
