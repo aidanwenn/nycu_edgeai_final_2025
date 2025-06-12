@@ -14,7 +14,7 @@ pip install -r requirements.txt
 
 Install gemlite and hqq package
 ```python3
-pip install hqq gemlite
+pip install hqq gemlite==0.4.6
 ```
 
 ## Inference
